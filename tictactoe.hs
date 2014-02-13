@@ -7,8 +7,13 @@ import Data.List
 import Data.List.Split
 import Data.Maybe
 
+import Debug.Trace
+
+debug = if d then flip trace else const
+    where d = True
+
 data Player = O | X
-    deriving (Eq, Show)
+    deriving (Eq)
 
 data Board = Board [Maybe Player]
     deriving (Eq)
@@ -21,6 +26,10 @@ data Utility = Side | Corner | Middle
 
 type Pos = Int
 
+instance Show Player where
+    show O = "\x1b[31;1mO\x1b[39;21m"
+    show X = "\x1b[34;1mX\x1b[39;21m"
+
 instance Show Board where
     show (Board board) = let
         -- We need to split it into groups of three.
@@ -29,8 +38,8 @@ instance Show Board where
         showPlayer player = " "++show player++" "
         showPos (x, p) = maybe (" "++show x++" ") showPlayer p
         -- Then for each one we need to show the player or nothing
-        players = map (intercalate "|" . map showPos) rows
-        shownRows = intersperse "-----------" players
+        players = map (intercalate "\x1b[39;49;1m|\x1b[39;49;21m" . map showPos) rows
+        shownRows = intersperse "\x1b[39;49;1m-----------\x1b[39;49;21m" players
         shownBoard = unlines shownRows
         in shownBoard
 
@@ -49,10 +58,27 @@ wins = [ (1,2,3)
        , (7,8,9)
        ]
 
-utility :: Player -> Board -> Int
-utility player board = case gameOver board of
+openings :: Player -> [(Pos, Board)]
+openings p = [ (1, putPlayer p createBoard 1)
+             , (2, putPlayer p createBoard 2)
+             , (5, putPlayer p createBoard 5)
+             ]
+
+utility :: Board -> Int
+utility board = case gameOver board of
     Nothing -> 0
-    Just p  -> if p == player then 1 else -1
+    Just X  -> 10
+    Just O  -> -10
+
+posToUtility :: Pos -> Player -> Int
+posToUtility 5 X = 5
+posToUtility 5 O = -5
+posToUtility n X
+    | even n    = 3
+    | otherwise = 1
+posToUtility n O
+    | even n    = -3
+    | otherwise = -1
 
 playOrder :: [Player]
 playOrder = [X,O,X,O,X,O,X,O,X]
@@ -84,7 +110,9 @@ zipperToBoard (BoardZipper [] p rs)     = Board (p:rs)
 zipperToBoard (BoardZipper (l:ls) p rs) = zipperToBoard (BoardZipper ls l (p:rs))
 
 availableMoves :: Player -> Board -> [(Pos, Board)]
-availableMoves player board = map (second zipperToBoard) validMoves
+availableMoves player board
+    | opening   = openings player
+    | otherwise = map (second zipperToBoard) validMoves
     where
         zipper = boardToZipper board
         allPos = zip [1..] . take 9 $ iterate zipLeft zipper
@@ -92,6 +120,7 @@ availableMoves player board = map (second zipperToBoard) validMoves
         validMoves = map (second $ update player) available
         isAvailable (_, BoardZipper _ Nothing  _) = True
         isAvailable (_, BoardZipper _ (Just _) _) = False
+        opening = board == createBoard
 
 gameOver :: Board -> Maybe Player
 gameOver (Board board)
@@ -124,32 +153,48 @@ minimaxDecision p b
         newBoard = putPlayer p b pos
         pos = fst $ maxValue p b
 
+maximinDecision :: Player -> Board -> Board
+maximinDecision p b
+    | pos /= 0  = newBoard
+    | otherwise = b
+    where
+        newBoard = putPlayer p b pos
+        pos = fst $ minValue p b
+
 minOrMaxHelper :: (Int -> Int -> Bool)
                -> (Player -> Board -> (Pos, (Int, Board)))
+               -> String
                -> Player
                -> Board
                -> (Pos, (Int, Board))
-minOrMaxHelper op f p b
-    | terminal b = (0, (utility p b, b))
+minOrMaxHelper op f minOrMax p b
+    | terminal b = (0, (utility b, b))
     | otherwise  = val
         where
             moves :: [(Pos, Board)]
             moves = availableMoves p b
             oppo = opponent p
             vals :: [(Pos, (Int, Board))]
-            vals = map (second snd . second (f oppo)) moves
+            vals = map (setPos . second (f oppo)) moves
+            setPos :: (Pos, (Pos, (Int, Board))) -> (Pos, (Int, Board))
+            setPos (pos, (0, (10,  b'))) = (pos, (10,                 b'))
+            setPos (pos, (0, (-10, b'))) = (pos, (-10,                b'))
+            setPos (pos, (0, (_,   b'))) = (pos, (posToUtility pos p, b'))
+            setPos (pos, (_, (10,  b'))) = (pos, (8,                  b'))
+            setPos (pos, (_, (-10, b'))) = (pos, (-8,                 b'))
+            setPos (pos, (_, (u,   b'))) = (pos, (u,                  b'))
             compareUtil :: (Pos, (Int, Board)) -> (Pos, (Int, Board)) -> (Pos, (Int, Board))
             compareUtil x@(_, (u1, _)) y@(_, (u2, _))
                 | u1 `op` u2 = x
                 | otherwise  = y
             val :: (Pos, (Int, Board))
-            val = foldr1 compareUtil vals
+            val = foldr1 compareUtil vals `debug` (minOrMax ++ ": " ++ show (map (second fst) vals))
 
 maxValue :: Player -> Board -> (Pos, (Int, Board))
-maxValue = minOrMaxHelper (>) minValue
+maxValue = minOrMaxHelper (>=) minValue "max"
 
 minValue :: Player -> Board -> (Pos, (Int, Board))
-minValue = minOrMaxHelper (<) maxValue
+minValue = minOrMaxHelper (<=) maxValue "min"
 
 putPlayer :: Player -> Board -> Pos -> Board
 putPlayer p (Board board) n = Board (replace board n)
@@ -173,7 +218,7 @@ gameLoop board = do
             pos <- getPos
             putStrLn ""
             let xBoard = putPlayer X b pos
-            let newBoard = minimaxDecision O xBoard
+            let newBoard = maximinDecision O xBoard
             gameLoop $ return newBoard
 
 playGame :: IO Board
