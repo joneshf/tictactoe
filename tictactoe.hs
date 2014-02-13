@@ -19,6 +19,8 @@ data BoardZipper = BoardZipper [Maybe Player] (Maybe Player) [Maybe Player]
 data Utility = Side | Corner | Middle
     deriving (Eq, Show, Enum, Bounded)
 
+type Pos = Int
+
 instance Show Board where
     show (Board board) = let
         -- We need to split it into groups of three.
@@ -36,7 +38,7 @@ opponent :: Player -> Player
 opponent X = O
 opponent O = X
 
-wins :: [(Int, Int, Int)]
+wins :: [(Pos, Pos, Pos)]
 wins = [ (1,2,3)
        , (1,4,7)
        , (1,5,9)
@@ -81,7 +83,7 @@ zipperToBoard :: BoardZipper -> Board
 zipperToBoard (BoardZipper [] p rs)     = Board (p:rs)
 zipperToBoard (BoardZipper (l:ls) p rs) = zipperToBoard (BoardZipper ls l (p:rs))
 
-availableMoves :: Player -> Board -> [(Int, Board)]
+availableMoves :: Player -> Board -> [(Pos, Board)]
 availableMoves player board = map (second zipperToBoard) validMoves
     where
         zipper = boardToZipper board
@@ -97,7 +99,7 @@ gameOver (Board board)
     | oWon      = Just O
     | otherwise = Nothing
     where
-        numbered :: [(Maybe Player, Int)]
+        numbered :: [(Maybe Player, Pos)]
         numbered = zip board [1..]
         played = map (first fromJust) $ filter (isJust . fst) numbered
         (xs, os) = partition ((== X) . fst) played
@@ -115,45 +117,54 @@ terminal b@(Board board) = noMoves || won
         won = isJust $ gameOver b
 
 minimaxDecision :: Player -> Board -> Board
-minimaxDecision p b = newBoard
+minimaxDecision p b
+    | pos /= 0  = newBoard
+    | otherwise = b
     where
         newBoard = putPlayer p b pos
         pos = fst $ maxValue p b
 
---maxValue :: Player -> Board -> (Int, Board)
+maxValue :: Player -> Board -> (Pos, (Int, Board))
 maxValue p b
-    | terminal b = (utility p b, (0, b))
-    | otherwise  =
-        foldr1 maxV (map (second $ second (minValue oppo)) moves)
+    | terminal b = (0, (utility p b, b))
+    | otherwise  = maxV
+        where
+            moves :: [(Pos, Board)]
+            moves = availableMoves p b
+            oppo = opponent p
+            minVals :: [(Pos, (Int, Board))]
+            minVals = map (second snd . second (minValue oppo)) moves
+            compareUtil :: (Pos, (Int, Board)) -> (Pos, (Int, Board)) -> (Pos, (Int, Board))
+            compareUtil x@(_, (u1, _)) y@(_, (u2, _))
+                | u1 > u2   = x
+                | otherwise = y
+            maxV :: (Pos, (Int, Board))
+            maxV = foldr1 compareUtil minVals
 
-    where
-        --maxV :: (Int, (Int, Board)) -> (Int, (Int, Board))
-        maxV (p1, (v1, b1)) (p2, (v2, b2))
-            | v1 > v2   = (p1, (v1, b1))
-            | otherwise = (p2, (v2, b2))
-        moves :: [(Int, Board)]
-        moves = availableMoves p b
-        oppo :: Player
-        oppo = opponent p
-
---minValue :: Player -> Board -> (Int, Board)
+minValue :: Player -> Board -> (Pos, (Int, Board))
 minValue p b
-    | terminal b = (utility p b, b)
-    | otherwise  =
-        foldr1 minV (map (second (maxValue (opponent p))) (availableMoves p b))
+    | terminal b = (0, (utility p b, b))
+    | otherwise  = minV
+        where
+            moves :: [(Pos, Board)]
+            moves = availableMoves p b
+            oppo = opponent p
+            maxVals :: [(Pos, (Int, Board))]
+            maxVals = map (second snd . second (maxValue oppo)) moves
+            compareUtil :: (Pos, (Int, Board)) -> (Pos, (Int, Board)) -> (Pos, (Int, Board))
+            compareUtil x@(_, (u1, _)) y@(_, (u2, _))
+                | u1 < u2   = x
+                | otherwise = y
+            minV :: (Pos, (Int, Board))
+            minV = foldr1 compareUtil maxVals
 
-    where
-        minV (p1, (v1, b1)) (p2, (v2, b2))
-            | v1 < v2   = (p1, (v1, b1))
-            | otherwise = (p2, (v2, b2))
-
-putPlayer :: Player -> Board -> Int -> Board
+putPlayer :: Player -> Board -> Pos -> Board
 putPlayer p (Board board) n = Board (replace board n)
     where
         replace (_:bs) 1 = Just p:bs
         replace (b:bs) m = b:replace bs (m - 1)
 
-getPos :: IO Int
+getPos :: IO Pos
 getPos = liftM digitToInt getChar
 
 gameLoop :: IO Board -> IO Board
