@@ -124,39 +124,32 @@ minimaxDecision p b
         newBoard = putPlayer p b pos
         pos = fst $ maxValue p b
 
-maxValue :: Player -> Board -> (Pos, (Int, Board))
-maxValue p b
+minOrMaxHelper :: (Int -> Int -> Bool)
+               -> (Player -> Board -> (Pos, (Int, Board)))
+               -> Player
+               -> Board
+               -> (Pos, (Int, Board))
+minOrMaxHelper op f p b
     | terminal b = (0, (utility p b, b))
-    | otherwise  = maxV
+    | otherwise  = val
         where
             moves :: [(Pos, Board)]
             moves = availableMoves p b
             oppo = opponent p
-            minVals :: [(Pos, (Int, Board))]
-            minVals = map (second snd . second (minValue oppo)) moves
+            vals :: [(Pos, (Int, Board))]
+            vals = map (second snd . second (f oppo)) moves
             compareUtil :: (Pos, (Int, Board)) -> (Pos, (Int, Board)) -> (Pos, (Int, Board))
             compareUtil x@(_, (u1, _)) y@(_, (u2, _))
-                | u1 > u2   = x
-                | otherwise = y
-            maxV :: (Pos, (Int, Board))
-            maxV = foldr1 compareUtil minVals
+                | u1 `op` u2 = x
+                | otherwise  = y
+            val :: (Pos, (Int, Board))
+            val = foldr1 compareUtil vals
+
+maxValue :: Player -> Board -> (Pos, (Int, Board))
+maxValue = minOrMaxHelper (>) minValue
 
 minValue :: Player -> Board -> (Pos, (Int, Board))
-minValue p b
-    | terminal b = (0, (utility p b, b))
-    | otherwise  = minV
-        where
-            moves :: [(Pos, Board)]
-            moves = availableMoves p b
-            oppo = opponent p
-            maxVals :: [(Pos, (Int, Board))]
-            maxVals = map (second snd . second (maxValue oppo)) moves
-            compareUtil :: (Pos, (Int, Board)) -> (Pos, (Int, Board)) -> (Pos, (Int, Board))
-            compareUtil x@(_, (u1, _)) y@(_, (u2, _))
-                | u1 < u2   = x
-                | otherwise = y
-            minV :: (Pos, (Int, Board))
-            minV = foldr1 compareUtil maxVals
+minValue = minOrMaxHelper (<) maxValue
 
 putPlayer :: Player -> Board -> Pos -> Board
 putPlayer p (Board board) n = Board (replace board n)
