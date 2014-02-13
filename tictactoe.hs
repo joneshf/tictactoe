@@ -28,6 +28,10 @@ instance Show Board where
         shownBoard = unlines shownRows
         in shownBoard
 
+opponent :: Player -> Player
+opponent X = O
+opponent O = X
+
 wins :: [(Int, Int, Int)]
 wins = [ (1,2,3)
        , (1,4,7)
@@ -39,11 +43,10 @@ wins = [ (1,2,3)
        , (7,8,9)
        ]
 
-utility :: Int -> Utility
-utility 5 = Middle
-utility x
-    | odd  x = Corner
-    | even x = Side
+utility :: Player -> Board -> Int
+utility player board = case gameOver board of
+    Nothing -> 0
+    Just p  -> if p == player then 1 else -1
 
 playOrder :: [Player]
 playOrder = [X,O,X,O,X,O,X,O,X]
@@ -100,3 +103,32 @@ gameOver (Board board)
         oLines = [(a,b,c) | a <- oNums, b <- oNums, c <- oNums, a < b, b < c]
         xWon = any (`elem` wins) xLines
         oWon = any (`elem` wins) oLines
+
+terminal :: Board -> Bool
+terminal b@(Board board) = noMoves || won
+    where
+        noMoves = all isJust board
+        won = isJust $ gameOver b
+
+minimaxDecision :: Player -> Board -> Board
+minimaxDecision p b = snd $ maxValue p b
+
+maxValue :: Player -> Board -> (Int, Board)
+maxValue p b
+    | terminal b = (utility p b, b)
+    | otherwise  = foldr1 compareValues (map (minValue (opponent p)) (availableMoves p b))
+
+    where
+        compareValues (v1, b1) (v2, b2)
+            | v1 > v2   = (v1, b1)
+            | otherwise = (v2, b2)
+
+minValue :: Player -> Board -> (Int, Board)
+minValue p b
+    | terminal b = (utility p b, b)
+    | otherwise  = foldr1 compareValues (map (maxValue (opponent p)) (availableMoves p b))
+
+    where
+        compareValues (v1, b1) (v2, b2)
+            | v1 < v2   = (v1, b1)
+            | otherwise = (v2, b2)
