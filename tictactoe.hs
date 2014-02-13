@@ -1,6 +1,8 @@
 module TicTacToe where
 
 import Control.Arrow
+import Control.Monad
+import Data.Char
 import Data.List
 import Data.List.Split
 import Data.Maybe
@@ -20,10 +22,12 @@ data Utility = Side | Corner | Middle
 instance Show Board where
     show (Board board) = let
         -- We need to split it into groups of three.
-        rows = chunksOf 3 board
+        rows :: [[(Int, Maybe Player)]]
+        rows = chunksOf 3 (zip [1..] board)
         showPlayer player = " "++show player++" "
+        showPos (x, p) = maybe (" "++show x++" ") showPlayer p
         -- Then for each one we need to show the player or nothing
-        players = map (intercalate "|" . map (maybe "   " showPlayer)) rows
+        players = map (intercalate "|" . map showPos) rows
         shownRows = intersperse "-----------" players
         shownBoard = unlines shownRows
         in shownBoard
@@ -77,15 +81,15 @@ zipperToBoard :: BoardZipper -> Board
 zipperToBoard (BoardZipper [] p rs)     = Board (p:rs)
 zipperToBoard (BoardZipper (l:ls) p rs) = zipperToBoard (BoardZipper ls l (p:rs))
 
-availableMoves :: Player -> Board -> [Board]
-availableMoves player board = map zipperToBoard validMoves
+availableMoves :: Player -> Board -> [(Int, Board)]
+availableMoves player board = map (second zipperToBoard) validMoves
     where
         zipper = boardToZipper board
-        allPos = take 9 $ iterate zipLeft zipper
+        allPos = zip [1..] . take 9 $ iterate zipLeft zipper
         available = filter isAvailable allPos
-        validMoves = map (update player) available
-        isAvailable (BoardZipper _ Nothing  _) = True
-        isAvailable (BoardZipper _ (Just _) _) = False
+        validMoves = map (second $ update player) available
+        isAvailable (_, BoardZipper _ Nothing  _) = True
+        isAvailable (_, BoardZipper _ (Just _) _) = False
 
 gameOver :: Board -> Maybe Player
 gameOver (Board board)
@@ -111,24 +115,64 @@ terminal b@(Board board) = noMoves || won
         won = isJust $ gameOver b
 
 minimaxDecision :: Player -> Board -> Board
-minimaxDecision p b = snd $ maxValue p b
+minimaxDecision p b = newBoard
+    where
+        newBoard = putPlayer p b pos
+        pos = fst $ maxValue p b
 
-maxValue :: Player -> Board -> (Int, Board)
+--maxValue :: Player -> Board -> (Int, Board)
 maxValue p b
-    | terminal b = (utility p b, b)
-    | otherwise  = foldr1 compareValues (map (minValue (opponent p)) (availableMoves p b))
+    | terminal b = (utility p b, (0, b))
+    | otherwise  =
+        foldr1 maxV (map (second $ second (minValue oppo)) moves)
 
     where
-        compareValues (v1, b1) (v2, b2)
-            | v1 > v2   = (v1, b1)
-            | otherwise = (v2, b2)
+        --maxV :: (Int, (Int, Board)) -> (Int, (Int, Board))
+        maxV (p1, (v1, b1)) (p2, (v2, b2))
+            | v1 > v2   = (p1, (v1, b1))
+            | otherwise = (p2, (v2, b2))
+        moves :: [(Int, Board)]
+        moves = availableMoves p b
+        oppo :: Player
+        oppo = opponent p
 
-minValue :: Player -> Board -> (Int, Board)
+--minValue :: Player -> Board -> (Int, Board)
 minValue p b
     | terminal b = (utility p b, b)
-    | otherwise  = foldr1 compareValues (map (maxValue (opponent p)) (availableMoves p b))
+    | otherwise  =
+        foldr1 minV (map (second (maxValue (opponent p))) (availableMoves p b))
 
     where
-        compareValues (v1, b1) (v2, b2)
-            | v1 < v2   = (v1, b1)
-            | otherwise = (v2, b2)
+        minV (p1, (v1, b1)) (p2, (v2, b2))
+            | v1 < v2   = (p1, (v1, b1))
+            | otherwise = (p2, (v2, b2))
+
+putPlayer :: Player -> Board -> Int -> Board
+putPlayer p (Board board) n = Board (replace board n)
+    where
+        replace (_:bs) 1 = Just p:bs
+        replace (b:bs) m = b:replace bs (m - 1)
+
+getPos :: IO Int
+getPos = liftM digitToInt getChar
+
+gameLoop :: IO Board -> IO Board
+gameLoop board = do
+    b <-board
+    print b
+    case gameOver b of
+        Just p  -> do
+            putStrLn $ show p ++ " won!"
+            board
+        Nothing -> do
+            putStrLn "Choose a position"
+            pos <- getPos
+            putStrLn ""
+            let xBoard = putPlayer X b pos
+            let newBoard = minimaxDecision O xBoard
+            gameLoop $ return newBoard
+
+playGame :: IO Board
+playGame = do
+    putStrLn "You play as X"
+    gameLoop $ return createBoard
