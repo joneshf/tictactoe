@@ -21,7 +21,14 @@ data Board = Board [Maybe Player]
 data BoardZipper = BoardZipper [Maybe Player] (Maybe Player) [Maybe Player]
     deriving (Eq, Show)
 
-data Utility = Side | Corner | Middle
+data Utility = EmptySide
+             | EmptyCorner
+             | OppositeCorner
+             | Center
+             | BlockFork
+             | Fork
+             | Block
+             | Win
     deriving (Eq, Show, Enum, Bounded)
 
 type Pos = Int
@@ -39,7 +46,7 @@ instance Show Board where
         showPos (x, p) = maybe (" "++show x++" ") showPlayer p
         -- Then for each one we need to show the player or nothing
         players = map (intercalate "\x1b[39;49;1m|\x1b[39;49;21m" . map showPos) rows
-        shownRows = intersperse "\x1b[39;49;1m-----------\x1b[39;49;21m" players
+        shownRows = intersperse "\x1b[39;49;1m---+---+---\x1b[39;49;21m" players
         shownBoard = unlines shownRows
         in shownBoard
 
